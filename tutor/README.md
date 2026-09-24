@@ -14,6 +14,13 @@ python -m uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000. API docs are at `/docs`. Progress is stored in `tutor.db` next to `app/`; delete that file to start over. Set `ROBOTICS_TUTOR_DB` to store it elsewhere.
 
+## Deploy (Railway / Railpack)
+
+The repo root has a `requirements.txt` and `railway.json` so Railpack detects Python and starts the app from `tutor/`. No root-directory setting is needed.
+
+- SQLite lives on the container's disk, which is wiped on every redeploy. To keep progress, add a Railway volume mounted at `/data` and set `ROBOTICS_TUTOR_DB=/data/tutor.db`.
+- The app is single-user with no login: anyone with the URL shares one progress record.
+
 ## How it decides what to show
 
 1. Lessons you last answered wrong come first, until you get them right.
