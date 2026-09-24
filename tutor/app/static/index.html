@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robotics Tutor</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1f24; --muted:#5b6673; --card:#f4f6f8; --line:#d5dbe1;
+          --ok:#1a7f37; --bad:#b42318; --accent:#1f5fbf; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161b; --fg:#e6eaee; --muted:#9aa5b1; --card:#1b2129; --line:#2c3540;
+            --ok:#4cc26a; --bad:#f2726a; --accent:#6ea8ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:16px; margin:16px 0; }
+  .module { font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  button.opt { display:block; width:100%; text-align:left; margin:8px 0; padding:12px;
+               background:var(--bg); color:var(--fg); border:1px solid var(--line);
+               border-radius:8px; font:inherit; cursor:pointer; }
+  button.opt:hover:enabled { border-color: var(--accent); }
+  button.opt.right { border-color:var(--ok); }
+  button.opt.wrong { border-color:var(--bad); }
+  button.primary { padding:10px 18px; border:0; border-radius:8px; background:var(--accent);
+                   color:#fff; font:inherit; cursor:pointer; }
+  .feedback.ok { color:var(--ok); } .feedback.bad { color:var(--bad); }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--accent); }
+  ul.modules { list-style:none; padding:0; margin:0; }
+  ul.modules li { padding:8px 0; border-bottom:1px solid var(--line); display:flex;
+                  justify-content:space-between; gap:12px; }
+  ul.modules li.locked { opacity:.5; }
+  .badge { font-size:.8rem; white-space:nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Robotics building blocks</h1>
+  <div class="muted" id="summary">Loading…</div>
+  <div class="bar" style="margin-top:8px"><div id="bar" style="width:0"></div></div>
+
+  <div id="lesson" class="card"></div>
+
+  <div class="card">
+    <strong>Modules</strong>
+    <ul class="modules" id="modules"></ul>
+  </div>
+</main>
+
+<script>
+let current = null;
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const node = Object.assign(document.createElement(tag), props);
+  kids.forEach((k) => node.append(k));
+  return node;
+};
+
+function renderProgress(p) {
+  $("summary").textContent = p.ready_for_python
+    ? "All modules mastered. You are ready to start Python."
+    : `${p.modules_mastered}/${p.modules_total} modules mastered · ` +
+      `${p.lessons_correct}/${p.lessons_total} lessons currently correct · ${p.total_attempts} attempts`;
+  $("bar").style.width = `${(100 * p.lessons_correct) / p.lessons_total}%`;
+  const list = $("modules");
+  list.replaceChildren(...p.modules.map((m) => {
+    const status = m.mastered ? "✓ mastered" : m.unlocked ? `${m.correct}/${m.lessons} correct` : "locked";
+    const li = el("li", { className: m.unlocked ? "" : "locked" },
+      el("span", {}, m.title),
+      el("span", { className: "badge muted" }, status));
+    return li;
+  }));
+}
+
+async function loadProgress() {
+  renderProgress(await (await fetch("/api/progress")).json());
+}
+
+async function loadLesson() {
+  const url = "/api/lessons/next" + (current ? `?after=${encodeURIComponent(current.id)}` : "");
+  const data = await (await fetch(url)).json();
+  const box = $("lesson");
+  if (data.done) {
+    current = null;
+    box.replaceChildren(el("p", {}, "Nothing due right now. Come back later for spaced reviews."));
+    renderProgress(data.progress);
+    return;
+  }
+  current = data;
+  const feedback = el("div", { className: "feedback" });
+  const next = el("button", { className: "primary", textContent: "Next lesson", hidden: true });
+  next.onclick = loadLesson;
+
+  const buttons = data.options.map((o) => {
+    const b = el("button", { className: "opt", textContent: o.text });
+    b.onclick = () => submit(o.id, b, buttons, feedback, next);
+    b.dataset.id = o.id;
+    return b;
+  });
+
+  box.replaceChildren(
+    el("div", { className: "module" }, data.module),
+    el("h2", { textContent: data.title }),
+    el("p", { textContent: data.teach }),
+    el("p", {}, el("strong", { textContent: data.question })),
+    ...buttons, feedback, next);
+}
+
+async function submit(choice, btn, buttons, feedback, next) {
+  buttons.forEach((b) => (b.disabled = true));
+  const res = await fetch(`/api/lessons/${current.id}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ choice }),
+  });
+  const r = await res.json();
+  btn.classList.add(r.correct ? "right" : "wrong");
+  buttons.find((b) => Number(b.dataset.id) === r.correct_choice).classList.add("right");
+  feedback.className = "feedback " + (r.correct ? "ok" : "bad");
+  feedback.textContent = (r.correct ? "Correct. " : "Not quite. ") + r.explanation;
+  next.hidden = false;
+  renderProgress(r.progress);
+}
+
+loadProgress().then(loadLesson);
+</script>
+</body>
+</html>
